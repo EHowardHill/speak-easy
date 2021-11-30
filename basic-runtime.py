@@ -5,7 +5,7 @@ You can choose voices from https://cloud.google.com/text-to-speech/docs/voices
 from __future__ import division
 
 # Constants to change
-language = "en-IN"
+language = "cmn-CN"
 voice_type = "A"
 
 import re
