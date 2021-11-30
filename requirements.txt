@@ -1,0 +1,5 @@
+google-cloud-speech
+google-cloud-texttospeech
+pipwin
+six
+pydub
