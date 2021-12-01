@@ -1,29 +1,25 @@
-"""
-You can choose voices from https://cloud.google.com/text-to-speech/docs/voices
-"""
-
 from __future__ import division
-
-# Constants to change
-language = "en-IN"
-voice_type = "A"
-
+from pydub.utils import make_chunks
 import re
 import sys
-
 from google.cloud import speech
-
 import pyaudio
 from six.moves import queue
 from io import BytesIO
-
 from pydub import AudioSegment
-from pydub.playback import play
 from multiprocessing import Process
+
+# You can choose voices from https://cloud.google.com/text-to-speech/docs/voices
+voice_choice = "en-US-Wavenet-F"
+
+output_lang_code = re.search("[a-z]{2,3}-[A-Z]{2}", voice_choice).group()
 
 # Audio recording parameters
 RATE = 16000
 CHUNK = int(RATE / 10)  # 100ms
+
+# You can use PyAudio to find the right index for the device you'd like to use
+output_device_index = 11
 
 def synthesize_text(text):
     """Synthesizes speech from the input file of text."""
@@ -36,7 +32,7 @@ def synthesize_text(text):
     # Note: the voice can also be specified by name.
     # Names of voices can be retrieved with client.list_voices().
     voice = texttospeech.VoiceSelectionParams(
-        language_code=language, name=language+"-Wavenet-"+voice_type
+        language_code=output_lang_code, name=voice_choice
     )
 
     audio_config = texttospeech.AudioConfig(
@@ -52,7 +48,8 @@ def synthesize_text(text):
     fp.write(response.audio_content)
     fp.seek(0)
     song = AudioSegment.from_file(fp, format="mp3")
-    play(song)
+    play_from_device(song, output_device_index)
+
 
 class MicrophoneStream(object):
     """Opens a recording stream as a generator yielding the audio chunks."""
@@ -122,6 +119,28 @@ class MicrophoneStream(object):
             yield b"".join(data)
 
 
+# modified from pydub's _play_with_pyaudio
+def play_from_device(seg, device_index):
+    p = pyaudio.PyAudio()
+    stream = p.open(format=p.get_format_from_width(seg.sample_width),
+                    channels=seg.channels,
+                    rate=seg.frame_rate,
+                    output=True,
+                    output_device_index=device_index)
+
+    # Just in case there were any exceptions/interrupts, we release the resource
+    # So as not to raise OSError: Device Unavailable should play() be used again
+    try:
+        # break audio into half-second chunks (to allows keyboard interrupts)
+        for chunk in make_chunks(seg, 500):
+            stream.write(chunk._data)
+    finally:
+        stream.stop_stream()
+        stream.close()
+
+        p.terminate()
+
+
 def listen_print_loop(responses):
     """Iterates through server responses and prints them.
 
@@ -167,20 +186,21 @@ def listen_print_loop(responses):
 
         else:
             print(transcript + overwrite_chars)
-            p2 = Process(target = synthesize_text(transcript + overwrite_chars))
+            p2 = Process(target=synthesize_text(transcript + overwrite_chars))
             p2.start()
             num_chars_printed = 0
+
 
 def main():
     # See http://g.co/cloud/speech/docs/languages
     # for a list of supported languages.
-    language_code = "en-US"  # a BCP-47 language tag
+    input_lang_code = "en-US"  # a BCP-47 language tag
 
     client = speech.SpeechClient()
     config = speech.RecognitionConfig(
         encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
         sample_rate_hertz=RATE,
-        language_code=language_code,
+        language_code=input_lang_code,
     )
 
     streaming_config = speech.StreamingRecognitionConfig(
@@ -198,6 +218,7 @@ def main():
 
         # Now, put the transcription responses to use.
         listen_print_loop(responses)
+
 
 if __name__ == "__main__":
     main()
